@@ -1,0 +1,222 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  serverTimestamp 
+} from 'firebase/firestore';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  signInWithCustomToken, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { User, Mail, Phone, Upload, CheckCircle, AlertCircle, Loader2, Share2, Copy, ShieldCheck } from 'lucide-react';
+
+// Configuración de Firebase - REGLA: Usar variables globales del entorno
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'form-identificacion';
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [status, setStatus] = useState('conectando'); // conectando, listo, error
+  const [formData, setFormData] = useState({
+    nombre: '',
+    email: '',
+    telefono: '',
+  });
+  const [fileInfo, setFileInfo] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState(false);
+
+  // REGLA 3: Autenticación obligatoria antes de Firestore
+  useEffect(() => {
+    const startSession = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+        setStatus('listo');
+      } catch (err) {
+        console.error(err);
+        setStatus('error');
+      }
+    };
+    startSession();
+    const unsub = onAuthStateChanged(auth, setUser);
+    return () => unsub();
+  }, []);
+
+  const copyToClipboard = () => {
+    const url = window.location.href.split('?')[0];
+    const el = document.createElement('textarea');
+    el.value = url;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    setCopyFeedback(true);
+    setTimeout(() => setCopyFeedback(false), 2000);
+  };
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+    
+    setIsSubmitting(true);
+    try {
+      // REGLA 1: Ruta pública estricta
+      const targetCol = collection(db, 'artifacts', appId, 'public', 'data', 'usuarios');
+      await addDoc(targetCol, {
+        ...formData,
+        archivoNombre: fileInfo?.name || 'No adjunto',
+        uid: user.uid,
+        fecha: serverTimestamp()
+      });
+      setDone(true);
+    } catch (err) {
+      alert("Error al enviar: " + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <div className="min-h-screen bg-green-50 flex items-center justify-center p-6">
+        <div className="bg-white p-10 rounded-[3rem] shadow-xl text-center max-w-sm w-full border-4 border-green-100">
+          <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle className="text-green-600 w-12 h-12" />
+          </div>
+          <h2 className="text-3xl font-black text-gray-800 mb-2">¡Completado!</h2>
+          <p className="text-gray-500 mb-8">Tu información ha sido guardada de forma segura.</p>
+          <button 
+            onClick={() => { setDone(false); setFormData({nombre:'', email:'', telefono:''}); setFileInfo(null); }}
+            className="w-full py-4 bg-gray-900 text-white rounded-2xl font-bold hover:bg-black transition-colors"
+          >
+            Nuevo Registro
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+      {/* Barra de Estado de Conexión */}
+      <div className={`p-2 text-center text-[10px] font-bold uppercase tracking-widest ${status === 'listo' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>
+        {status === 'listo' ? '● Sistema en línea y seguro' : '○ Conectando con el servidor...'}
+      </div>
+
+      <div className="max-w-md mx-auto pt-8 pb-24 px-4">
+        <header className="mb-8 text-center">
+          <div className="inline-block p-3 bg-indigo-100 rounded-2xl mb-4">
+            <ShieldCheck className="text-indigo-600 w-8 h-8" />
+          </div>
+          <h1 className="text-3xl font-black tracking-tight text-gray-900">Captura de Datos</h1>
+          <p className="text-gray-500 mt-1">Sube tu documento de identidad</p>
+        </header>
+
+        <form onSubmit={handleSend} className="space-y-5">
+          <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 space-y-4">
+            <div>
+              <label className="block text-xs font-black text-gray-400 uppercase mb-2 ml-1">Nombre Completo</label>
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
+                <input 
+                  required 
+                  placeholder="Ej: María García"
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-2xl transition-all outline-none"
+                  value={formData.nombre}
+                  onChange={e => setFormData({...formData, nombre: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-black text-gray-400 uppercase mb-2 ml-1">Correo Electrónico</label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
+                <input 
+                  required 
+                  type="email"
+                  placeholder="correo@ejemplo.com"
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-2xl transition-all outline-none"
+                  value={formData.email}
+                  onChange={e => setFormData({...formData, email: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-black text-gray-400 uppercase mb-2 ml-1">Teléfono</label>
+              <div className="relative">
+                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
+                <input 
+                  required 
+                  type="tel"
+                  placeholder="+57 300..."
+                  className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-2xl transition-all outline-none"
+                  value={formData.telefono}
+                  onChange={e => setFormData({...formData, telefono: e.target.value})}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100">
+            <label className="block text-xs font-black text-gray-400 uppercase mb-4 ml-1 text-center">Documento de Identificación</label>
+            <div className={`relative border-2 border-dashed rounded-3xl p-8 text-center transition-all ${fileInfo ? 'bg-indigo-50 border-indigo-500' : 'bg-gray-50 border-gray-200'}`}>
+              <input 
+                required
+                type="file" 
+                accept="image/*,.pdf"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                onChange={e => setFileInfo(e.target.files[0])}
+              />
+              <Upload className={`mx-auto mb-2 ${fileInfo ? 'text-indigo-600' : 'text-gray-400'}`} size={32} />
+              <p className="text-sm font-bold text-gray-700">
+                {fileInfo ? fileInfo.name : "Subir Foto o PDF"}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-1 uppercase font-bold tracking-wider">Máximo 5MB</p>
+            </div>
+          </div>
+
+          <button 
+            type="submit"
+            disabled={isSubmitting || status !== 'listo'}
+            className="w-full py-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] font-black text-xl shadow-xl shadow-indigo-100 active:scale-95 transition-all disabled:opacity-50"
+          >
+            {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : "ENVIAR REGISTRO"}
+          </button>
+        </form>
+
+        {/* Herramienta de Compartir */}
+        <div className="mt-12 p-6 bg-indigo-900 rounded-[2.5rem] text-white shadow-2xl">
+          <div className="flex items-center gap-3 mb-4">
+            <Share2 className="text-indigo-300" />
+            <h3 className="font-bold">¿Cómo compartir este link?</h3>
+          </div>
+          <p className="text-indigo-200 text-xs mb-4 leading-relaxed">
+            Si estás en el móvil, copia el enlace de abajo. Es el link directo para que tus clientes o amigos lo llenen.
+          </p>
+          <button 
+            onClick={copyToClipboard}
+            className={`w-full py-3 px-4 rounded-xl flex items-center justify-between transition-all font-bold text-sm ${copyFeedback ? 'bg-green-500' : 'bg-indigo-800'}`}
+          >
+            <span className="truncate opacity-70 mr-2">{window.location.href.substring(0, 25)}...</span>
+            {copyFeedback ? <CheckCircle size={18} /> : <Copy size={18} />}
+          </button>
+          {copyFeedback && <p className="text-[10px] text-center mt-2 font-bold text-green-300 animate-bounce">¡Copiado al portapapeles!</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
